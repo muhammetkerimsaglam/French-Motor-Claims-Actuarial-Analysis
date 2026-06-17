@@ -1,0 +1,79 @@
+FrenchMotorClaims <- read.csv("C:/Users/Muhammet/Desktop/Fransa Arac Sigortası Projesi/FrenchMotorClaims.csv")
+FrenchMotorClaims$Area <- as.factor(FrenchMotorClaims$Area)
+FrenchMotorClaims$VehGas <- as.factor(FrenchMotorClaims$VehGas)
+FrenchMotorClaims$Region <- as.factor(FrenchMotorClaims$Region)
+yakit_tablosu <- table(FrenchMotorClaims$VehGas, FrenchMotorClaims$ClaimNb > 0)
+chisq.test(yakit_tablosu)
+area_tablosu <- table(FrenchMotorClaims$Area, FrenchMotorClaims$ClaimNb > 0)
+chisq.test(area_tablosu)
+# Poisson Genelleştirilmiş Doğrusal Model (GLM) kurulumu
+aktuaryal_model <- glm(ClaimNb ~ DrivAge + VehPower + VehGas + Area + BonusMalus, 
+                       data = FrenchMotorClaims, 
+                       family = poisson(link = "log"), 
+                       offset = log(Exposure))
+
+# Model katsayılarını ve anlamlılık testlerini görüntüleme
+summary(aktuaryal_model)
+
+install.packages("AER")
+library(AER)
+# Kurduğumuz model üzerinde aşırı dağılım testini çalıştırıyoruz
+dispersiontest(aktuaryal_model)
+# Negatif Binom için gerekli kütüphaneyi yüklüyoruz (Zaten R içinde kuruludur)
+library(MASS)
+
+# Negatif Binom Regresyon Modelini kuruyoruz
+model_negbinom <- glm.nb(ClaimNb ~ DrivAge + VehPower + VehGas + Area + BonusMalus + offset(log(Exposure)), 
+                         data = FrenchMotorClaims)
+
+# Model özetini ve katsayıları görüntülüyoruz
+summary(model_negbinom)
+
+install.packages("lmtest")
+library(lmtest)
+
+# Poisson ve Negatif Binom modellerini Likelihood Ratio Test ile karşılaştırıyoruz
+lrtest(aktuaryal_model, model_negbinom)
+# 1. Poisson modelini formül yapısı negatif binom ile birebir aynı olacak şekilde güncelliyoruz
+model_poisson_yeni <- glm(ClaimNb ~ DrivAge + VehPower + VehGas + Area + BonusMalus + offset(log(Exposure)), 
+                          data = FrenchMotorClaims, 
+                          family = poisson(link = "log"))
+
+# 2. Şimdi iki modeli nihayet doğru şekilde Likelihood Ratio Test'e sokuyoruz
+lmtest::lrtest(model_poisson_yeni, model_negbinom)
+# Poisson ve Negatif Binom dağılımlarını karşılaştıran gerçek Olasılık Oranı Testi
+MASS::odTest(model_negbinom)
+install.packages("pscl")
+pscl::odTest(model_negbinom)
+
+# 1. Gerçek hasar sayılarını alıyoruz
+gercek_hasar <- FrenchMotorClaims$ClaimNb
+
+# 2. Modellerin tahmin ettiği hasar sayılarını hesaplıyoruz
+tahmin_poisson <- predict(model_poisson_yeni, type = "response")
+tahmin_negbinom <- predict(model_negbinom, type = "response")
+
+# 3. İki model için de RMSE değerlerini hesaplıyoruz
+rmse_poisson <- sqrt(mean((gercek_hasar - tahmin_poisson)^2))
+rmse_negbinom <- sqrt(mean((gercek_hasar - tahmin_negbinom)^2))
+
+# 4. Sonuçları konsola yazdırıyoruz
+cat("Poisson Model RMSE: ", rmse_poisson, "\n")
+cat("Negatif Binom Model RMSE: ", rmse_negbinom, "\n")
+
+
+# Grafik penceresini 1 satır 2 sütun olarak bölüyoruz (İki grafiği yan yana görmek için)
+par(mfrow = 1:2)
+
+# 1. Poisson modelinin artık grafiği
+plot(predict(model_poisson_yeni, type = "link"), residuals(model_poisson_yeni, type = "deviance"),
+     main = "Poisson Deviance Residuals", xlab = "Tahmin Edilen Degerler (Link)", ylab = "Artıklar")
+abline(h = 0, col = "red", lwd = 2)
+
+# 2. Negatif Binom modelinin artık grafiği
+plot(predict(model_negbinom, type = "link"), residuals(model_negbinom, type = "deviance"),
+     main = "Neg Binom Deviance Residuals", xlab = "Tahmin Edilen Degerler (Link)", ylab = "Artıklar")
+abline(h = 0, col = "red", lwd = 2)
+
+# Grafik penceresini eski haline getiriyoruz
+par(mfrow = c(1,1))
